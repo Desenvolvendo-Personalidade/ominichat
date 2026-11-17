@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bot de IA – Canais Abertos</title>
+<link rel="icon" href="/_gw/icon">
+<style>
+  :root {
+    --bg: #f5f7f8; --card: #fff; --text: #333; --muted: #828b95; --line: #e1e5e8;
+    --brand: #2fc6f6; --brand-dark: #11a9d9; --ok: #9dcf00; --danger: #ff5752; --warn: #ffa900;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Open Sans", "Helvetica Neue", Arial, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px; }
+  h2 { font-size: 16px; font-weight: 600; margin: 0 0 12px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .power { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 16px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); }
+  .on .dot { background: var(--ok); } .off .dot { background: var(--danger); }
+  button { font: inherit; border: 0; border-radius: 8px; padding: 10px 18px; cursor: pointer; font-weight: 600; }
+  .primary { background: var(--brand); color: #fff; } .primary:hover { background: var(--brand-dark); }
+  .danger { background: var(--danger); color: #fff; } .success { background: var(--ok); color: #fff; }
+  button:disabled { opacity: .6; cursor: default; }
+  label { display: block; font-weight: 600; margin: 14px 0 4px; }
+  .hint { color: var(--muted); font-size: 12px; font-weight: 400; }
+  input, select, textarea { width: 100%; font: inherit; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--text); }
+  textarea { min-height: 220px; resize: vertical; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 16px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
+  .stat { background: var(--bg); border-radius: 8px; padding: 12px; }
+  .stat b { display: block; font-size: 20px; }
+  .stat span { color: var(--muted); font-size: 12px; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; }
+  .tag { padding: 2px 8px; border-radius: 10px; font-size: 12px; background: var(--bg); }
+  .tag.crise { background: var(--danger); color: #fff; } .tag.sim { background: #fff3d6; }
+  .msg { margin-top: 12px; min-height: 20px; font-weight: 600; }
+  .msg.ok { color: #6a8f00; } .msg.err { color: var(--danger); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Bot de IA – Canais Abertos</h1>
+  <p class="sub">Desenvolvendo Personalidade · configuração do assistente virtual</p>
+
+  <section class="card power">
+    <div>
+      <div id="power" class="pill"><span class="dot"></span><span id="powerText">Carregando…</span></div>
+      <div class="hint" id="powerHint"></div>
+    </div>
+    <button id="toggle" disabled>…</button>
+  </section>
+
+  <section class="card">
+    <h2>Resumo</h2>
+    <div class="stats" id="stats"></div>
+  </section>
+
+  <section class="card">
+    <h2>Configurações</h2>
+    <form id="form">
+      <label for="systemPrompt">Prompt de sistema <span class="hint">— instruções que o assistente segue</span></label>
+      <textarea id="systemPrompt" name="systemPrompt"></textarea>
+      <p class="hint">As regras de transferência (crise, assunto clínico, pedido de atendente, não saber responder) são aplicadas automaticamente, mesmo que não estejam escritas aqui.</p>
+
+      <div class="grid">
+        <div>
+          <label for="model">Modelo da OpenAI</label>
+          <input id="model" name="model" list="models">
+          <datalist id="models"><option value="gpt-5-mini"><option value="gpt-5-nano"><option value="gpt-4.1-mini"><option value="gpt-5"></datalist>
+        </div>
+        <div>
+          <label for="reasoningEffort">Esforço de raciocínio <span class="hint">— só modelos gpt-5</span></label>
+          <select id="reasoningEffort" name="reasoningEffort">
+            <option value="">padrão do modelo</option><option value="none">nenhum</option><option value="minimal">mínimo (mais barato)</option>
+            <option value="low">baixo</option><option value="medium">médio</option><option value="high">alto</option>
+          </select>
+        </div>
+        <div>
+          <label for="lineId">Canal Aberto atendido</label>
+          <select id="lineId" name="lineId"></select>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div>
+          <label for="alertUserIds">Quem recebe alertas urgentes <span class="hint">— IDs de usuário do Bitrix24, separados por vírgula</span></label>
+          <input id="alertUserIds" name="alertUserIds" placeholder="ex.: 1, 15">
+        </div>
+        <div>
+          <label for="crisisTransferUserId">Transferir crises para <span class="hint">— ID de usuário (opcional; vazio = fila do canal)</span></label>
+          <input id="crisisTransferUserId" name="crisisTransferUserId" placeholder="ex.: 15">
+        </div>
+      </div>
+
+      <label for="handoffMessage">Mensagem ao transferir para atendente</label>
+      <input id="handoffMessage" name="handoffMessage">
+      <label for="fallbackMessage">Mensagem quando a OpenAI falhar</label>
+      <input id="fallbackMessage" name="fallbackMessage">
+      <label for="operatorButton">Texto do botão para chamar atendente</label>
+      <input id="operatorButton" name="operatorButton">
+
+      <div class="msg" id="formMsg"></div>
+      <button type="submit" class="primary">Salvar configurações</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Registro de atendimentos <span class="hint">— últimos 200 eventos (o texto das conversas não é guardado)</span></h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Data</th><th>Evento</th><th>Chat</th><th>Tokens</th><th>Transferido</th><th>Motivo</th></tr></thead>
+        <tbody id="log"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<script>
+const FIELDS = ['systemPrompt', 'model', 'reasoningEffort', 'lineId', 'alertUserIds', 'crisisTransferUserId', 'handoffMessage', 'fallbackMessage', 'operatorButton']
+const MOTIVOS = { nenhum: 'respondido pelo bot', pedido_cliente: 'cliente pediu atendente', nao_sabe: 'IA não sabia', clinico: 'assunto clínico',
+  crise: 'CRISE', falha_openai: 'falha da OpenAI', bot_desligado: 'bot desligado', midia: 'áudio/arquivo', historico_crise: 'histórico de crise', falha_envio: 'falha ao enviar' }
+const EVENTOS = { bot_ligado: 'Bot LIGADO', bot_desligado: 'Bot DESLIGADO', configuracao_alterada: 'Configuração alterada' }
+let enabled = null
+
+function el(tag, text, cls) { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e }
+
+async function api(path, body) {
+  const res = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {})
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(json.erro || 'Erro ' + res.status)
+  return json
+}
+
+function renderPower() {
+  const p = document.getElementById('power'), b = document.getElementById('toggle')
+  p.className = 'pill ' + (enabled ? 'on' : 'off')
+  document.getElementById('powerText').textContent = enabled ? 'Bot LIGADO – respondendo clientes' : 'Bot DESLIGADO – tudo vai direto para atendentes'
+  document.getElementById('powerHint').textContent = enabled ? 'Desligar envia toda nova conversa direto para a equipe.' : 'O protocolo de crise (CVV + alerta urgente) continua ativo mesmo desligado.'
+  b.textContent = enabled ? 'Desligar bot' : 'Ligar bot'
+  b.className = enabled ? 'danger' : 'success'
+  b.disabled = false
+}
+
+function render(data, withForm) {
+  enabled = data.settings.enabled
+  renderPower()
+  if (withForm) renderForm(data)
+  renderStats(data)
+}
+
+function renderForm(data) {
+  const sel = document.getElementById('lineId')
+  sel.replaceChildren(el('option', 'Todos os canais em que o bot estiver'))
+  sel.firstChild.value = ''
+  for (const l of data.linhas) { const o = el('option', l.nome + ' (ID ' + l.id + ')'); o.value = l.id; sel.append(o) }
+  if (data.settings.lineId && !data.linhas.some(l => l.id === data.settings.lineId)) { const o = el('option', 'ID ' + data.settings.lineId); o.value = data.settings.lineId; sel.append(o) }
+  for (const f of FIELDS) document.getElementById(f).value = data.settings[f] ?? ''
+}
+
+function renderStats(data) {
+  const r = data.resumo, stats = document.getElementById('stats')
+  stats.replaceChildren(...[[r.mensagens, 'mensagens tratadas'], [r.tokens.toLocaleString('pt-BR'), 'tokens usados'], [r.transferencias, 'transferências'], [r.crises, 'crises'], [r.falhas, 'falhas']]
+    .map(([v, t]) => { const d = el('div', null, 'stat'); d.append(el('b', String(v)), el('span', t)); return d }))
+
+  const tbody = document.getElementById('log')
+  tbody.replaceChildren(...data.log.map(e => {
+    const tr = el('tr')
+    const evento = EVENTOS[e.evento] || (e.urgente ? 'URGENTE' : 'Mensagem')
+    const transf = e.chat ? (e.transferido ? 'sim' : 'não') : ''
+    tr.append(el('td', new Date(e.data).toLocaleString('pt-BR')), el('td', evento + (e.por ? ' por ' + e.por : '')), el('td', e.chat || ''),
+      el('td', e.tokens ? String(e.tokens.total) : ''), el('td', transf, transf === 'sim' ? 'tag sim' : ''))
+    const m = el('td'); if (e.motivo) m.append(el('span', MOTIVOS[e.motivo] || e.motivo, 'tag' + (e.motivo === 'crise' ? ' crise' : '')))
+    if (e.erro) m.append(' ', el('span', 'erro: ' + e.erro, 'hint'))
+    tr.append(m)
+    return tr
+  }))
+}
+
+// O formulário só é preenchido na abertura e após salvar, para não apagar uma edição em andamento.
+async function load(withForm = false) {
+  try { render(await api('/api/state'), withForm) } catch (e) { document.getElementById('powerText').textContent = 'Erro ao carregar: ' + e.message }
+}
+
+document.getElementById('toggle').onclick = async () => {
+  if (enabled && !confirm('Desligar o bot? Novas conversas irão direto para os atendentes.')) return
+  document.getElementById('toggle').disabled = true
+  try { await api('/api/enabled', { enabled: !enabled }); await load() } catch (e) { alert(e.message); renderPower() }
+}
+
+document.getElementById('form').onsubmit = async ev => {
+  ev.preventDefault()
+  const msg = document.getElementById('formMsg'), body = {}
+  for (const f of FIELDS) body[f] = document.getElementById(f).value
+  try { await api('/api/settings', body); msg.textContent = 'Configurações salvas.'; msg.className = 'msg ok'; load(true) }
+  catch (e) { msg.textContent = e.message; msg.className = 'msg err' }
+}
+
+load(true)
+setInterval(load, 30000)
+</script>
+</body>
+</html>
