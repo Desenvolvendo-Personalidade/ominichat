@@ -213,3 +213,43 @@ test('falha ao enviar a resposta: transfere para não deixar o cliente sem retor
   assert.ok(fns(vibe).includes('handToOperator'))
   assert.equal(store.readLog()[0].motivo, 'falha_envio')
 })
+
+test('conversa reaberta: mensagem que chega ANTES do aviso de entrada é atendida', async () => {
+  let t = new Date('2026-11-18T13:00:00Z')
+  const { bot, ai } = setup({ now: () => t })
+  await bot.handleEvent(msgEvent('quero falar com um atendente'))
+  t = new Date('2026-11-19T13:58:00Z') // dia seguinte; o JOINCHAT ainda não chegou
+  await bot.handleEvent(msgEvent('Oi, bom dia'))
+  assert.equal(ai.calls.length, 1)
+  await bot.handleEvent(joinEvent())
+  await bot.handleEvent(msgEvent('Vocês atendem online?'))
+  assert.equal(ai.calls.length, 2)
+})
+
+test('logo após transferir (menos de 2 min) o bot continua quieto', async () => {
+  let t = new Date('2026-11-19T13:00:00Z')
+  const { bot, ai, vibe } = setup({ now: () => t })
+  await bot.handleEvent(msgEvent('quero falar com um atendente'))
+  t = new Date('2026-11-19T13:01:30Z')
+  await bot.handleEvent(msgEvent('alô?'))
+  assert.equal(ai.calls.length, 0)
+  assert.equal(vibe.calls.length, 2)
+})
+
+test('crise numa conversa marcada como "com uma pessoa" ainda recebe o CVV e o alerta', async () => {
+  const { bot, vibe } = setup()
+  await bot.handleEvent(msgEvent('quero falar com um atendente'))
+  vibe.calls.length = 0
+  await bot.handleEvent(msgEvent('não aguento mais, quero me matar'))
+  assert.equal(vibe.calls[0].message, CRISIS_MESSAGE)
+  assert.ok(fns(vibe).includes('notifyUser'))
+})
+
+test('crise recente: mensagem antes do aviso de entrada não vai para a IA', async () => {
+  let t = new Date('2026-11-18T13:00:00Z')
+  const { bot, ai } = setup({ now: () => t })
+  await bot.handleEvent(msgEvent('quero me matar'))
+  t = new Date('2026-11-25T13:00:00Z')
+  await bot.handleEvent(msgEvent('oi'))
+  assert.equal(ai.calls.length, 0)
+})

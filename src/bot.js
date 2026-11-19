@@ -4,6 +4,7 @@ import { CRISIS_MESSAGE, CRISIS_LOCK_DAYS, HISTORY_LIMIT } from './config.js'
 import { isCrisis, isHumanRequest, redactPII } from './detect.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
+const HANDOFF_QUIET_MS = 2 * 60 * 1000 // após transferir, ignora mensagens por 2 min
 
 function lineIdOf(chat) {
   // entityId de um chat de Canal Aberto: "conector|idDaLinha|..."
@@ -101,12 +102,24 @@ export function createBot({ store, vibe, ai, now = () => new Date(), logger = co
     const chatId = String(chat.id)
     const dialogId = chat.dialogId || `chat${chatId}`
     const text = String(message.text || '').trim()
-    const state = store.getChat(chatId)
+    let state = store.getChat(chatId)
 
-    if (state.mode === 'human' || state.mode === 'crisis') return
-
-    // Mesmo com o bot desligado, a crise nunca passa sem o aviso do CVV e o alerta urgente.
+    // A crise vem antes de tudo: mesmo com o bot desligado ou com a conversa marcada como
+    // "com uma pessoa", nunca passa sem o aviso do CVV e o alerta urgente.
     if (isCrisis(text)) return crisis({ chatId, dialogId, settings })
+
+    // Depois de transferir, o Bitrix tira o bot da conversa. Se chega mensagem de um chat
+    // marcado como "com uma pessoa", é uma conversa nova cujo aviso de entrada (JOINCHAT)
+    // ainda não chegou (a ordem dos avisos não é garantida). Nos primeiros minutos após a
+    // transferência, o bot ainda pode estar saindo: fica quieto.
+    const since = now() - new Date(state.since || state.crisisAt || 0)
+    if (state.mode === 'crisis') {
+      if (since < CRISIS_LOCK_DAYS * DAY_MS) return // o aviso de entrada encaminha para um humano
+      state = { mode: 'bot', history: [] }
+    } else if (state.mode === 'human') {
+      if (since < HANDOFF_QUIET_MS) return
+      state = { mode: 'bot', history: [] }
+    }
 
     if (!settings.enabled) {
       return handOff({ chatId, dialogId, settings, motivo: 'bot_desligado' })

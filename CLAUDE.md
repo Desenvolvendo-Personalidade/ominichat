@@ -22,7 +22,7 @@ empresa brasileira "Omnichat" no mesmo segmento, então checar o INPI antes de u
 ## Comandos
 
 ```bash
-npm test          # testes (node --test), 47 testes
+npm test          # testes (node --test), 51 testes
 npm run preview   # só a tela de configuração, sem receber mensagens (porta 3000)
 npm start         # bot completo (lê .env: BITRIX_WEBHOOK_URL, BOT_TOKEN, BOT_ID, WEBHOOK_SECRET, OPENAI_API_KEY)
 npm run registrar # registra o bot no Bitrix (sem BOT_ID) ou atualiza o endereço (com BOT_ID); exige PUBLIC_URL https
