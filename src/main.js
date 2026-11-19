@@ -1,20 +1,18 @@
-// Processo principal: servidor da tela de configuração + laço que busca mensagens novas.
+// Processo principal: tela de configuração + recepção dos avisos do Bitrix24 (webhook).
 
 import { env } from './config.js'
 import { createStore } from './store.js'
-import { createVibeClient } from './vibe.js'
+import { createBitrixClient } from './bitrix.js'
 import { createOpenAIClient } from './openai.js'
 import { createBot } from './bot.js'
 import { createWebServer } from './web.js'
 
-const sleep = ms => new Promise(r => setTimeout(r, ms))
-
-// Modo de visualização local: só a tela de configuração, sem buscar mensagens.
-// Rodar o laço de mensagens aqui disputaria os eventos com o bot em produção.
+// Modo de visualização local: só a tela de configuração, sem receber mensagens.
 function startPreview() {
   const store = createStore(env.dataDir)
-  const vibe = { listOpenlines: async () => [{ id: 25, name: '0800 - Plantão de Atendimento (exemplo)' }] }
-  createWebServer({ store, vibe, status: () => ({ preview: true }), localAdmin: true }).listen(env.port, () => {
+  const bitrix = { listOpenlines: async () => [{ id: 25, name: '0800 - Plantão de Atendimento (exemplo)' }] }
+  const ai = createOpenAIClient({ apiKey: env.openaiApiKey, baseUrl: env.openaiBaseUrl })
+  createWebServer({ store, vibe: bitrix, status: () => ({ preview: true }), listModels: ai.listModels }).listen(env.port, () => {
     console.log(`Visualização local da tela de configuração: http://localhost:${env.port}`)
   })
 }
@@ -25,51 +23,32 @@ function startBot() {
   }
 
   const store = createStore(env.dataDir)
-  const vibe = createVibeClient({ apiKey: env.vibeApiKey, baseUrl: env.vibeBaseUrl, botId: env.botId })
+  const bitrix = createBitrixClient({ webhookUrl: env.bitrixWebhookUrl, botId: env.botId, botToken: env.botToken })
   const ai = createOpenAIClient({ apiKey: env.openaiApiKey, baseUrl: env.openaiBaseUrl })
-  const bot = createBot({ store, vibe, ai })
+  const bot = createBot({ store, vibe: bitrix, ai })
 
-  const health = { lastPollAt: null, lastPollError: null, openaiKey: Boolean(env.openaiApiKey) }
-
-  createWebServer({ store, vibe, status: () => ({ ...health }) }).listen(env.port, () => {
-    console.log(`Tela de configuração na porta ${env.port}`)
-  })
-
-  pollLoop({ store, vibe, bot, health })
-}
-
-async function pollLoop({ store, vibe, bot, health }) {
-  let offset = store.getOffset()
-  for (;;) {
-    let wait = env.pollIntervalMs
-    try {
-      const data = await vibe.pollEvents(offset)
-      for (const event of data.events || []) {
-        try {
-          await bot.handleEvent(event)
-        } catch (err) {
-          console.error(`[evento ${event.eventId}]`, err.message)
-        }
-      }
-      if (data.nextOffset != null && data.nextOffset !== offset) {
-        offset = data.nextOffset
-        store.setOffset(offset)
-      }
-      if (data.hasMore) wait = 0
-      health.lastPollAt = new Date().toISOString()
-      health.lastPollError = null
-    } catch (err) {
-      health.lastPollError = `${err.code || err.status || ''} ${err.message}`.trim()
-      console.error('[polling]', health.lastPollError)
-      wait = err.retryAfter ? err.retryAfter * 1000 : Math.max(env.pollIntervalMs, 5000)
-    }
-    await sleep(wait)
+  const health = { lastEventAt: null, openaiKey: Boolean(env.openaiApiKey) }
+  const onEvent = event => {
+    health.lastEventAt = new Date().toISOString()
+    // Registro técnico, sem texto nem telefone do cliente (o entityId completo contém o número).
+    const { chat, message } = event.data || {}
+    const linha = String(chat?.entityId || '').split('|')[1] || '?'
+    console.log(`[aviso] ${event.type} chat=${chat?.id} tipo=${chat?.entityType} linha=${linha} msg=${message?.id}`)
+    return bot.handleEvent(event)
   }
+
+  createWebServer({ store, vibe: bitrix, status: () => ({ ...health }), onEvent, webhookSecret: env.webhookSecret, listModels: ai.listModels }).listen(env.port, () => {
+    console.log(`Bot no ar na porta ${env.port}. Avisos do Bitrix em /bitrix/eventos`)
+  })
 }
+
+const missing = ['BITRIX_WEBHOOK_URL', 'BOT_TOKEN', 'BOT_ID', 'WEBHOOK_SECRET'].filter(
+  k => !{ BITRIX_WEBHOOK_URL: env.bitrixWebhookUrl, BOT_TOKEN: env.botToken, BOT_ID: env.botId, WEBHOOK_SECRET: env.webhookSecret }[k],
+)
 
 // Sem as credenciais do bot (ex.: no computador local) abre só a visualização.
-if (env.preview || !env.vibeApiKey || !env.botId) {
-  if (!env.preview) console.warn('BOT_VIBE_KEY/BOT_ID ausentes: iniciando só a visualização da tela, sem buscar mensagens.')
+if (env.preview || missing.length) {
+  if (!env.preview) console.warn(`Faltam ${missing.join(', ')}: iniciando só a visualização da tela, sem receber mensagens.`)
   startPreview()
 } else {
   startBot()

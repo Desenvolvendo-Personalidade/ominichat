@@ -56,3 +56,28 @@ test('erro da OpenAI ou resposta inválida gera exceção (bot transfere)', asyn
   const ai3 = createOpenAIClient({ apiKey: '', baseUrl: 'x', fetchImpl: fakeFetch([]) })
   await assert.rejects(ai3.decide({ model: 'm', systemPrompt: 'P', history: [] }), /OPENAI_API_KEY/)
 })
+
+test('lista modelos: marca gratuitos, contexto e suporte a JSON; gratuitos primeiro', async () => {
+  const data = [
+    { id: 'openai/gpt-5-mini', name: 'GPT-5 Mini', context_length: 400000, pricing: { prompt: '0.00000025', completion: '0.000002' }, supported_parameters: ['response_format'] },
+    { id: 'meta/llama:free', name: 'Llama (free)', context_length: 128000, pricing: { prompt: '0', completion: '0' }, supported_parameters: ['tools'] },
+    { id: 'zeta/z', name: 'Zeta', pricing: { prompt: '0', completion: '0' } },
+  ]
+  const calls = []
+  const fetchImpl = async (url, init) => { calls.push({ url, headers: init.headers }); return { ok: true, status: 200, json: async () => ({ data }) } }
+  const ai = createOpenAIClient({ apiKey: 'k', baseUrl: 'https://openrouter.ai/api/v1', fetchImpl })
+  const list = await ai.listModels()
+  assert.equal(calls[0].url, 'https://openrouter.ai/api/v1/models')
+  assert.equal(calls[0].headers.Authorization, 'Bearer k')
+  assert.deepEqual(list, [
+    { id: 'meta/llama:free', nome: 'Llama (free)', gratuito: true, contexto: 128000, json: false },
+    { id: 'zeta/z', nome: 'Zeta', gratuito: true, contexto: null, json: null },
+    { id: 'openai/gpt-5-mini', nome: 'GPT-5 Mini', gratuito: false, contexto: 400000, json: true },
+  ])
+})
+
+test('lista modelos sem preço (OpenAI direta): gratuito fica desconhecido', async () => {
+  const fetchImpl = async () => ({ ok: true, status: 200, json: async () => ({ data: [{ id: 'gpt-5-mini' }] }) })
+  const ai = createOpenAIClient({ apiKey: 'k', baseUrl: 'https://api.openai.com/v1', fetchImpl })
+  assert.deepEqual(await ai.listModels(), [{ id: 'gpt-5-mini', nome: 'gpt-5-mini', gratuito: null, contexto: null, json: null }])
+})

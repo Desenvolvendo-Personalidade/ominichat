@@ -1,10 +1,12 @@
-// Tela de configuração (só administradores do Bitrix24) e endpoints de saúde.
-// O acesso passa pelo Gateway da VibeCode, que injeta os cabeçalhos X-Vibe-*.
+// Tela de configuração, endpoint de saúde e recepção dos avisos do Bitrix24.
+// Até existir login (etapa 4), a tela só abre quando acessada pelo próprio computador
+// (endereço localhost). Por um túnel ou pela internet ela fica bloqueada.
 
 import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parseFormBody, toBotEvent, validSecret } from './webhook.js'
 
 const PAGE = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'page.html'), 'utf8')
 
@@ -25,13 +27,23 @@ function send(res, status, body, type = 'application/json; charset=utf-8') {
   res.end(typeof body === 'string' ? body : JSON.stringify(body))
 }
 
-async function readBody(req) {
+async function readRaw(req) {
   let raw = ''
   for await (const chunk of req) {
     raw += chunk
-    if (raw.length > 100_000) throw new Error('corpo grande demais')
+    if (raw.length > 1_000_000) throw new Error('corpo grande demais')
   }
-  return JSON.parse(raw || '{}')
+  return raw
+}
+
+async function readBody(req) {
+  return JSON.parse((await readRaw(req)) || '{}')
+}
+
+// Tela acessada no próprio computador (http://localhost:PORTA).
+function isLocalHost(req) {
+  const host = String(req.headers.host || '').toLowerCase()
+  return /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host)
 }
 
 function summarize(entries) {
@@ -47,25 +59,35 @@ function summarize(entries) {
   return total
 }
 
-export function createWebServer({ store, vibe, status, localAdmin = false }) {
+const MODELS_TTL = 60 * 60 * 1000
+
+// vibe: cliente da API do Bitrix (bitrix.js). onEvent: processa um aviso do Bitrix.
+// listModels: busca os modelos do provedor de IA (openai.js); guardados por 1 hora.
+export function createWebServer({ store, vibe, status, onEvent, webhookSecret, listModels, logger = console }) {
   let linesCache = null
+  let modelsCache = null
 
   return http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://local')
-      // Só na visualização local (npm run preview): age como administrador.
-      if (localAdmin) {
-        Object.assign(req.headers, { 'x-vibe-request-id': 'local', 'x-vibe-user-role': 'ADMIN', 'x-vibe-user-name': 'Visualização local' })
-      }
 
       if (url.pathname === '/health') return send(res, 200, { ok: true, ...status() })
 
-      // Requisição sem passar pelo Gateway (checagem interna do deploy): só o status.
-      if (!req.headers['x-vibe-request-id']) {
-        return send(res, 200, 'Bot de IA para Canais Abertos: em execução.', 'text/plain; charset=utf-8')
+      // Aviso do Bitrix: responde OK na hora e processa em seguida.
+      if (req.method === 'POST' && url.pathname === '/bitrix/eventos') {
+        if (!onEvent || !validSecret(url.searchParams.get('s'), webhookSecret)) return send(res, 403, { erro: 'não autorizado' })
+        const event = toBotEvent(parseFormBody(await readRaw(req)))
+        send(res, 200, { ok: true })
+        try {
+          await onEvent(event)
+        } catch (err) {
+          logger.error(`[evento ${event.type}]`, err.message)
+        }
+        return
       }
-      if (req.headers['x-vibe-user-role'] !== 'ADMIN') {
-        return send(res, 403, '<p style="font-family:sans-serif">Acesso restrito a administradores do Bitrix24.</p>', 'text/html; charset=utf-8')
+
+      if (!isLocalHost(req)) {
+        return send(res, 403, '<p style="font-family:sans-serif">Tela de configuração disponível só no computador do servidor, até o login ser criado.</p>', 'text/html; charset=utf-8')
       }
 
       if (req.method === 'GET' && url.pathname === '/') return send(res, 200, PAGE, 'text/html; charset=utf-8')
@@ -84,9 +106,23 @@ export function createWebServer({ store, vibe, status, localAdmin = false }) {
         })
       }
 
+      if (req.method === 'GET' && url.pathname === '/api/modelos') {
+        if (!listModels) return send(res, 200, { modelos: [], erro: 'Lista de modelos indisponível.' })
+        const refresh = url.searchParams.get('atualizar') === '1'
+        if (refresh || !modelsCache || Date.now() - modelsCache.em > MODELS_TTL) {
+          try {
+            modelsCache = { em: Date.now(), modelos: await listModels() }
+          } catch (err) {
+            logger.error('[modelos]', err.message)
+            if (!modelsCache) return send(res, 200, { modelos: [], erro: 'Não foi possível buscar a lista de modelos agora.' })
+          }
+        }
+        return send(res, 200, { modelos: modelsCache.modelos, atualizadoEm: new Date(modelsCache.em).toISOString() })
+      }
+
       if (req.method === 'POST' && (req.headers['content-type'] || '').startsWith('application/json')) {
         const body = await readBody(req)
-        const who = `${req.headers['x-vibe-user-name'] || ''} (${req.headers['x-vibe-user-id'] || '?'})`
+        const who = 'acesso local'
 
         if (url.pathname === '/api/enabled') {
           const settings = store.updateSettings({ enabled: Boolean(body.enabled) })

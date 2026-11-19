@@ -2,14 +2,20 @@
 // Tudo que o dono da clínica pode mudar sem programar fica em settings (store.js).
 
 export const env = {
-  vibeApiKey: process.env.BOT_VIBE_KEY || process.env.VIBE_API_KEY || '',
-  openaiApiKey: process.env.OPENAI_API_KEY || '',
-  vibeBaseUrl: process.env.VIBE_BASE_URL || 'https://vibecode.bitrix24.com/v1',
-  openaiBaseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+  // Link do webhook de entrada do Bitrix24 (Desenvolvedores → Outros → Webhook de entrada),
+  // com permissões imbot, imopenlines e im. Ex.: https://empresa.bitrix24.com.br/rest/1/abc123/
+  bitrixWebhookUrl: process.env.BITRIX_WEBHOOK_URL || '',
+  // Token que identifica o bot (inventado por nós, até 40 caracteres) e o ID devolvido no registro.
+  botToken: process.env.BOT_TOKEN || '',
   botId: Number(process.env.BOT_ID) || null,
+  // Segredo que vai no endereço registrado no Bitrix; avisos sem ele são recusados.
+  webhookSecret: process.env.WEBHOOK_SECRET || '',
+  // Endereço público do servidor (usado só no registro do bot). Ex.: https://bot.exemplo.com
+  publicUrl: process.env.PUBLIC_URL || '',
+  openaiApiKey: process.env.OPENAI_API_KEY || '',
+  openaiBaseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
   dataDir: process.env.DATA_DIR || './data',
   port: Number(process.env.PORT) || 3000,
-  pollIntervalMs: Number(process.env.POLL_INTERVAL_MS) || 3000,
   preview: process.env.PREVIEW === '1',
 }
 

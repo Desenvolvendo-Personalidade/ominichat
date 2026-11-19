@@ -22,24 +22,29 @@ empresa brasileira "Omnichat" no mesmo segmento, então checar o INPI antes de u
 ## Comandos
 
 ```bash
-npm test          # testes (node --test), 34 testes
-npm run preview   # só a tela de configuração, sem buscar mensagens (porta 3000)
-npm start         # bot completo (exige BOT_VIBE_KEY, BOT_ID, OPENAI_API_KEY)
+npm test          # testes (node --test), 47 testes
+npm run preview   # só a tela de configuração, sem receber mensagens (porta 3000)
+npm start         # bot completo (lê .env: BITRIX_WEBHOOK_URL, BOT_TOKEN, BOT_ID, WEBHOOK_SECRET, OPENAI_API_KEY)
+npm run registrar # registra o bot no Bitrix (sem BOT_ID) ou atualiza o endereço (com BOT_ID); exige PUBLIC_URL https
 ```
 
 Node >= 22, ES modules, sem dependências externas.
 
 ## Estado atual (protótipo)
 
-- `src/main.js` — sobe a tela de configuração e um **laço de polling** que busca eventos no
-  VibeCode a cada 3 s.
-- `src/vibe.js` — cliente da API **VibeCode** (`https://vibecode.bitrix24.com/v1`, header
-  `X-Api-Key`): eventos, enviar mensagem, transferir para operador, notificar usuário.
+- `src/main.js` — sobe o servidor: tela de configuração + `POST /bitrix/eventos` (avisos do Bitrix).
+- `src/bitrix.js` — cliente da API REST do Bitrix24 pelo **webhook de entrada**: `imbot.v2.Chat.Message.send`,
+  `imopenlines.bot.session.operator` / `.transfer` (com `CLIENT_ID` = botToken), `im.notify.system.add`,
+  `imopenlines.config.list.get`.
+- `src/webhook.js` — converte o formulário do Bitrix (`data[message][text]`…) no evento `{ type, data }`
+  do `bot.js` e confere o segredo `?s=` do endereço.
+- `scripts/registrar-bot.js` — `imbot.v2.Bot.register` (tipo `openline`, `eventMode: webhook`) ou `Bot.update`.
 - `src/bot.js` — lógica do atendimento (eventos `ONIMBOTV2MESSAGEADD` / `ONIMBOTV2JOINCHAT`).
 - `src/openai.js` — chamada à OpenAI que devolve `{ decision: { acao, motivo, resposta }, usage }`.
 - `src/detect.js` — detecção de crise, pedido de humano e mascaramento de dados pessoais.
 - `src/store.js` — persistência em **arquivos JSON** em `DATA_DIR` (settings, estado, log).
-- `src/web.js` + `src/page.html` — tela de configuração (**sem login hoje**).
+- `src/web.js` + `src/page.html` — tela de configuração (**sem login hoje**: só abre por `localhost`;
+  por túnel/internet responde 403 até a etapa 4).
 - `src/config.js` — variáveis de ambiente, prompt padrão, mensagem de crise, configurações padrão.
 
 ## Regras que NÃO podem ser quebradas
@@ -75,13 +80,26 @@ Node >= 22, ES modules, sem dependências externas.
   a base da cobrança por créditos na fase de produto.
 - **Base de conhecimento (futuro):** pedaços de documento com embeddings no Supabase
   (pgvector); enviar só os trechos relevantes, nunca a base inteira.
+- **Regras do bot no white label (fase de produto):** três níveis. Até lá, as regras atuais
+  continuam fixas no código (são as certas para a clínica).
+  1. **Fixas da plataforma** (ninguém muda): protocolo de crise, mascarar dados pessoais,
+     nunca inventar informação, cliente sempre pode pedir uma pessoa, na dúvida transferir.
+     A crise vale para **todo** segmento (qualquer WhatsApp pode receber um pedido de socorro;
+     a detecção é local e não gasta tokens).
+  2. **Pacote do segmento** (só o administrador da plataforma, ao cadastrar a empresa): lista de
+     "assuntos que o bot não responde" (ex.: assunto clínico para saúde, parecer jurídico para
+     advocacia), telefones de emergência do país e a trava de 30 dias após crise.
+  3. **Do cliente** (pela tela): setor de destino por assunto, assuntos extras para transferir,
+     tratamento de áudio/arquivo, textos das mensagens.
+  Na tela do cliente, os níveis 1 e 2 aparecem com cadeado (visíveis, não editáveis).
 
 ## Plano de etapas
 
 Cada etapa: mostrar o plano ao usuário e esperar o OK antes de editar.
 
 1. ~~Repositório no GitHub~~ — feito (`Desenvolvendo-Personalidade/ominichat`).
-2. **Webhook em vez de polling:** trocar `vibe.js` pela API REST nativa do Bitrix24 (aplicação
+2. ~~Webhook em vez de polling~~ — código feito (Chatbots 2.0 / `imbot.v2` + webhook de entrada, sem
+   aplicação local); falta registrar e testar no canal de teste. Plano original: trocar `vibe.js` pela API REST nativa do Bitrix24 (aplicação
    local com escopos `imbot`, `imopenlines`, `crm`; registro com `imbot.register` tipo Canais
    Abertos; eventos de mensagem por webhook; respostas com `imbot.message.add`; transferência
    com `imopenlines.bot.session.operator` / `imopenlines.bot.session.transfer`). O webhook

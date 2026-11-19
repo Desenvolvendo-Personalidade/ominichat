@@ -47,6 +47,32 @@ export function createOpenAIClient({ apiKey, baseUrl, fetchImpl = fetch }) {
   }
 
   return {
+    // Lista os modelos do provedor. No OpenRouter vem com preço: gratuito = entrada e saída a zero.
+    // Retorna [{ id, nome, gratuito, contexto, json }] (gratuito/json = null quando o provedor não informa).
+    async listModels() {
+      const res = await fetchImpl(`${baseUrl}/models`, {
+        headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+        signal: AbortSignal.timeout(20_000),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error?.message || `Lista de modelos: HTTP ${res.status}`)
+      return (json.data || [])
+        .filter(m => m && typeof m.id === 'string')
+        .map(m => {
+          const p = m.pricing
+          const gratuito = m.id.endsWith(':free') || (p ? Number(p.prompt) === 0 && Number(p.completion) === 0 : null)
+          const params = Array.isArray(m.supported_parameters) ? m.supported_parameters : null
+          return {
+            id: m.id,
+            nome: m.name || m.id,
+            gratuito: p || m.id.endsWith(':free') ? gratuito : null,
+            contexto: Number(m.context_length) || null,
+            json: params ? params.includes('response_format') || params.includes('structured_outputs') : null,
+          }
+        })
+        .sort((a, b) => Number(Boolean(b.gratuito)) - Number(Boolean(a.gratuito)) || a.nome.localeCompare(b.nome))
+    },
+
     // Retorna { decision: {resposta, acao, motivo}, usage: {prompt, completion, total} }
     async decide({ model, reasoningEffort, systemPrompt, history }) {
       if (!apiKey) throw new Error('OPENAI_API_KEY não configurada')

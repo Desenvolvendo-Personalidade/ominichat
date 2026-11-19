@@ -8,8 +8,9 @@
     "node": ">=22"
   },
   "scripts": {
-    "start": "node src/main.js",
+    "start": "node --env-file-if-exists=.env src/main.js",
     "test": "node --test test/*.test.js",
-    "preview": "node --env-file-if-exists=.env.preview src/main.js"
+    "preview": "node --env-file-if-exists=.env.preview src/main.js",
+    "registrar": "node --env-file-if-exists=.env scripts/registrar-bot.js"
   }
 }
